@@ -29,9 +29,23 @@ export function pascalCase(text) {
   return /^[A-Z]/.test(name) ? name : null;
 }
 
+const realChildren = (node) => node.children.filter((n) => (n.el.rect?.h ?? 0) >= MIN_SECTION_HEIGHT);
+
+/** True when children sit one below another, like page sections, not side by side. */
+function stacked(children) {
+  for (let i = 1; i < children.length; i++) {
+    const prev = children[i - 1].el.rect ?? { y: 0, h: 0 };
+    const next = children[i].el.rect ?? { y: 0 };
+    if (next.y < prev.y + prev.h * 0.5) return false;
+  }
+  return true;
+}
+
 /**
- * Finds the page's top-level sections: descend through single-child wrappers,
- * open up <main>, and treat each remaining child with real height as a section.
+ * Finds the page's top-level sections. Descends through single-child
+ * wrappers, then keeps opening <main> and any container that holds most of
+ * the page, as long as its children are stacked vertically. Many sites wrap
+ * every section in one big div, and that div is not a section itself.
  */
 export function findSections(root) {
   const wrappers = [root];
@@ -41,12 +55,25 @@ export function findSections(root) {
     wrappers.push(container);
   }
 
-  const candidates = [];
-  for (const child of container.children) {
-    if (child.el.tag === 'main' && child.children.length > 1) candidates.push(...child.children);
-    else candidates.push(child);
+  const pageHeight = root.el.rect?.h ?? Math.max(1, ...container.children.map((n) => n.el.rect?.h ?? 0));
+  let candidates = realChildren(container);
+  for (let depth = 0; depth < 6; depth++) {
+    let opened = false;
+    const next = [];
+    for (const node of candidates) {
+      const kids = realChildren(node);
+      const dominant = node.el.tag === 'main' || (node.el.rect?.h ?? 0) >= 0.5 * pageHeight;
+      if (dominant && !['header', 'footer'].includes(node.el.tag) && kids.length >= 2 && stacked(kids)) {
+        next.push(...kids);
+        opened = true;
+      } else {
+        next.push(node);
+      }
+    }
+    candidates = next;
+    if (!opened) break;
   }
-  return { wrappers, sections: candidates.filter((n) => (n.el.rect?.h ?? 0) >= MIN_SECTION_HEIGHT) };
+  return { wrappers, sections: candidates };
 }
 
 /** Assigns component names: Header, Footer, then the section's first heading, then Section N. */

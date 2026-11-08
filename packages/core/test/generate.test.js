@@ -175,3 +175,25 @@ test('font faces are kept for used families and pointed at local files', () => {
   assert.equal(faces.length, 1);
   assert.match(faces[0], /url\("\/assets\/abc\.woff2"\)/);
 });
+
+test('opens a page-wide wrapper into its stacked sections', () => {
+  let y = 0;
+  const box = (tag, h, children = [], text) => {
+    const node = { el: { tag, text, rect: { x: 0, y, w: 1440, h } }, children };
+    return node;
+  };
+  const at = (node, top) => { node.el.rect.y = top; return node; };
+  const sections = ['Trusted by teams', 'What we build', 'Case studies', 'Pricing'].map((title, i) =>
+    at(box('section', 1000, [box('h2', 40, [], title)]), 600 + i * 1000));
+  const wrapper = at(box('div', 4000, sections), 600);
+  const root = box('body', 5000, [at(box('header', 600, [box('nav', 80)]), 0), wrapper, at(box('footer', 400), 4600)]);
+  const found = findSections(root).sections;
+  assert.deepEqual(found.map((n) => n.el.tag), ['header', 'section', 'section', 'section', 'section', 'footer']);
+});
+
+test('does not split side-by-side columns into sections', () => {
+  const col = (x) => ({ el: { tag: 'div', rect: { x, y: 0, w: 700, h: 3000 } }, children: [] });
+  const twoColumn = { el: { tag: 'div', rect: { x: 0, y: 0, w: 1440, h: 3000 } }, children: [col(0), col(720)] };
+  const root = { el: { tag: 'body', rect: { y: 0, h: 3200 } }, children: [twoColumn, { el: { tag: 'footer', rect: { y: 3000, h: 200 } }, children: [] }] };
+  assert.equal(findSections(root).sections[0], twoColumn);
+});

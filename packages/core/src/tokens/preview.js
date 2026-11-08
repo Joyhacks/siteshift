@@ -5,6 +5,7 @@ const escapeHtml = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
 const ROLE_LABELS = {
+  canvas: 'Page frame',
   background: 'Background',
   surface: 'Surface',
   inverse: 'Inverse',

@@ -90,13 +90,15 @@ function collectColors(elements) {
   const pairs = [];
   const totals = { text: 0, background: 0, border: 0 };
 
+  const textRuns = [];
+
   const add = (raw, use, amount, interactiveUse) => {
     const color = parseColor(raw);
     if (!color || color.alpha < OPAQUE || amount <= 0) return null;
     const hex = toHex(color);
     let entry = entries.get(hex);
     if (!entry) {
-      entry = { hex, color, lab: toOklab(color), text: 0, background: 0, border: 0, interactiveBg: 0, interactiveText: 0 };
+      entry = { hex, color, lab: toOklab(color), text: 0, background: 0, border: 0, interactiveBg: 0, interactiveText: 0, interactiveCount: 0 };
       entries.set(hex, entry);
     }
     entry[use] += amount;
@@ -110,10 +112,14 @@ function collectColors(elements) {
     const chars = textLength(el);
     const interactive = INTERACTIVE.has(el.tag);
 
-    if (chars > 0) add(style.color, 'text', chars, interactive ? 'interactiveText' : null);
+    if (chars > 0) {
+      const text = add(style.color, 'text', chars, interactive ? 'interactiveText' : null);
+      if (text) textRuns.push({ el, hex: text.hex, chars });
+    }
     const bg = add(style['background-color'], 'background', areaOf(el), interactive ? 'interactiveBg' : null);
 
     if (interactive && bg) {
+      bg.interactiveCount += 1;
       const text = parseColor(style.color);
       pairs.push({ bg: bg.hex, text: text ? toHex(text) : null });
     }
@@ -127,7 +133,59 @@ function collectColors(elements) {
     }
   }
 
-  return { entries: [...entries.values()], pairs, totals };
+  return { entries: [...entries.values()], pairs, totals, textRuns };
+}
+
+function averageColor(colors) {
+  const labs = colors.map(toOklab);
+  const mean = (key) => sum(labs, (lab) => lab[key]) / labs.length;
+  return parseColor(`oklab(${mean('L')} ${mean('a')} ${mean('b')})`);
+}
+
+/**
+ * Finds the color each element is painted on: its own opaque background, a
+ * gradient's average, or the nearest ancestor's, walking up the CSS path.
+ */
+function createBackdropResolver(elements, fallback) {
+  const byPath = new Map(elements.map((el) => [el.path, el]));
+  const memo = new Map();
+
+  const own = (el) => {
+    const style = el?.style ?? {};
+    const bg = parseColor(style['background-color']);
+    if (bg && bg.alpha >= OPAQUE) return bg;
+    const image = style['background-image'];
+    if (image && image !== 'none') {
+      const stops = findColors(image).map(parseColor).filter((c) => c && c.alpha >= 0.5);
+      if (stops.length) return averageColor(stops);
+    }
+    return null;
+  };
+
+  const resolve = (path) => {
+    if (memo.has(path)) return memo.get(path);
+    const cut = path.lastIndexOf(' > ');
+    const result = own(byPath.get(path)) ?? (cut > 0 ? resolve(path.slice(0, cut)) : fallback);
+    memo.set(path, result);
+    return result;
+  };
+
+  return (el) => resolve(el.path);
+}
+
+/** Groups colors that are close enough to read as the same backdrop. */
+function dominantBackdrop(weighted) {
+  const groups = [];
+  for (const { color, weight } of weighted) {
+    const lab = toOklab(color);
+    let group = groups.find((g) => labDistance(g.lab, lab) < 0.03);
+    if (!group) {
+      group = { color, lab, weight: 0 };
+      groups.push(group);
+    }
+    group.weight += weight;
+  }
+  return maxBy(groups, (g) => g.weight);
 }
 
 function clusterColors(entries, totals) {
@@ -139,7 +197,7 @@ function clusterColors(entries, totals) {
   const ranked = entries.map((e) => ({ ...e, score: share(e) })).sort((p, q) => q.score - p.score);
   const clusters = [];
   const byHex = new Map();
-  const fields = ['score', 'text', 'background', 'border', 'interactiveBg', 'interactiveText'];
+  const fields = ['score', 'text', 'background', 'border', 'interactiveBg', 'interactiveText', 'interactiveCount'];
 
   for (const entry of ranked) {
     let cluster = clusters.find((c) => labDistance(c.lab, entry.lab) < MERGE_DISTANCE);
@@ -157,72 +215,86 @@ function clusterColors(entries, totals) {
   return { clusters, byHex };
 }
 
-function assignRoles({ clusters, byHex, pairs, elements, notes }) {
+function assignRoles({ clusters, byHex, pairs, elements, textRuns, notes }) {
+  const white = parseColor('rgb(255, 255, 255)');
+  const black = parseColor('rgb(0, 0, 0)');
   const body = elements.find((el) => el.tag === 'body');
   const pageArea = body ? areaOf(body) : Math.max(0, ...elements.map(areaOf));
 
+  // Canvas: what the page itself is painted on.
   const bodyBg = body ? parseColor(body.style?.['background-color']) : null;
-  let background = bodyBg && bodyBg.alpha >= OPAQUE ? byHex.get(toHex(bodyBg)) : null;
-  if (!background) {
+  let canvas = bodyBg && bodyBg.alpha >= OPAQUE ? byHex.get(toHex(bodyBg)) : null;
+  if (!canvas) {
     const largest = maxBy(clusters, (c) => c.background);
-    if (largest && largest.background >= 0.5 * pageArea) background = largest;
+    if (largest && largest.background >= 0.5 * pageArea) canvas = largest;
   }
-  const white = parseColor('rgb(255, 255, 255)');
-  const backgroundColor = background ? background.color : white;
-  if (!background) notes.push('No opaque page background was found, so the browser default white was assumed.');
+  const canvasColor = canvas ? canvas.color : white;
+  if (!canvas) notes.push('No opaque page background was found, so the browser default white was assumed.');
 
-  // Body text is the highest-contrast neutral the page uses in quantity;
-  // muted text is a softer neutral. Raw character counts alone would crown
-  // whichever one has more paragraphs.
-  const textClusters = clusters.filter((c) => c.text > 0);
-  const totalText = sum(textClusters, (c) => c.text);
-  const contrastWithBackground = (c) => contrastRatio(c.color, backgroundColor);
-  const neutralText = textClusters.filter((c) => labChroma(c.lab) < CHROMATIC);
-  const significantText = neutralText.filter((c) => c.text >= 0.1 * totalText);
-  const foreground =
-    maxBy(significantText, contrastWithBackground) ??
-    maxBy(neutralText, (c) => c.text) ??
-    maxBy(textClusters, (c) => c.text);
-  const foregroundColor = foreground ? foreground.color : parseColor('rgb(0, 0, 0)');
+  // Background: the backdrop most text is actually read on. Many sites put
+  // content on light panels or gradients inside a dark frame, so the body
+  // color alone gets this wrong.
+  const backdropOf = createBackdropResolver(elements, canvasColor);
+  const runs = textRuns.map((run) => ({ ...run, backdrop: backdropOf(run.el) }));
+  const reading = dominantBackdrop(runs.map((run) => ({ color: run.backdrop, weight: run.chars })));
+  const backgroundColor = reading ? reading.color : canvasColor;
+  const backgroundLab = toOklab(backgroundColor);
+  const background = byHex.get(toHex(backgroundColor)) ?? null;
+  const separateCanvas = labDistance(toOklab(canvasColor), backgroundLab) >= 0.03;
 
-  const totalInteractiveBg = sum(clusters, (c) => c.interactiveBg);
-  const totalInteractiveText = sum(clusters, (c) => c.interactiveText);
-  const brandScore = (c) =>
-    (totalInteractiveBg ? (2 * c.interactiveBg) / totalInteractiveBg : 0) +
-    (totalInteractiveText ? c.interactiveText / totalInteractiveText : 0) +
-    c.score;
+  // Body text is the highest-contrast neutral used in quantity on that
+  // backdrop; muted text is a softer neutral. Raw character counts alone
+  // would crown whichever one has more paragraphs.
+  const readingTally = new Map();
+  for (const run of runs) {
+    if (labDistance(toOklab(run.backdrop), backgroundLab) < 0.03) tally(readingTally, byHex.get(run.hex), run.chars);
+  }
+  const readingText = [...readingTally].map(([cluster, chars]) => ({ cluster, chars }));
+  const totalReading = sum(readingText, (t) => t.chars);
+  const contrastOnBackground = (t) => contrastRatio(t.cluster.color, backgroundColor);
+  const neutralText = readingText.filter((t) => labChroma(t.cluster.lab) < CHROMATIC);
+  const significantText = neutralText.filter((t) => t.chars >= 0.1 * totalReading);
+  const foreground = (
+    maxBy(significantText, contrastOnBackground) ??
+    maxBy(neutralText, (t) => t.chars) ??
+    maxBy(readingText, (t) => t.chars)
+  )?.cluster ?? null;
+  const foregroundColor =
+    foreground?.color ??
+    (contrastRatio(black, backgroundColor) >= contrastRatio(white, backgroundColor) ? black : white);
+  const foregroundContrast = contrastRatio(foregroundColor, backgroundColor);
+  const muted = maxBy(
+    neutralText.filter((t) => t.cluster !== foreground && contrastOnBackground(t) < foregroundContrast),
+    (t) => t.chars,
+  )?.cluster ?? null;
 
-  let primary = maxBy(
-    clusters.filter((c) => c !== background && labChroma(c.lab) >= CHROMATIC),
-    brandScore,
+  // Primary: the call-to-action color, ranked by how many buttons and links
+  // are painted with it. Painted area would crown large decorative sections.
+  const chromatic = clusters.filter(
+    (c) => labChroma(c.lab) >= CHROMATIC && c !== background && c !== canvas,
   );
-  if (!primary) {
-    primary = maxBy(clusters.filter((c) => c !== background && c.interactiveBg > 0), (c) => c.interactiveBg);
-  }
+  const primary =
+    maxBy(chromatic.filter((c) => c.interactiveCount > 0), (c) => c.interactiveCount + c.score) ??
+    maxBy(chromatic.filter((c) => c.interactiveText > 0), (c) => c.interactiveText) ??
+    maxBy(chromatic, (c) => c.score) ??
+    maxBy(clusters.filter((c) => c.interactiveCount > 0 && c !== background && c !== canvas), (c) => c.interactiveCount);
   const primaryColor = primary ? primary.color : foregroundColor;
 
   const onPrimary = new Map();
   if (primary) {
     for (const pair of pairs) {
       if (byHex.get(pair.bg) !== primary || !pair.text) continue;
-      tally(onPrimary, byHex.get(pair.text)?.hex ?? pair.text);
+      tally(onPrimary, pair.text); // the exact text color, not its cluster representative
     }
   }
   let primaryForeground = topKey(onPrimary) ?? null;
   if (!primaryForeground) {
-    const black = parseColor('rgb(0, 0, 0)');
     primaryForeground = contrastRatio(white, primaryColor) >= contrastRatio(black, primaryColor) ? '#ffffff' : '#000000';
   }
 
-  const foregroundContrast = foreground ? contrastWithBackground(foreground) : 21;
-  const muted = maxBy(
-    neutralText.filter((c) => c !== foreground && c !== primary && contrastWithBackground(c) < foregroundContrast),
-    (c) => c.text,
-  );
-
-  const backgroundLab = toOklab(backgroundColor);
   const neutralSurfaces = clusters
     .filter((c) => c.background > 0 && c !== background && labChroma(c.lab) < 0.08)
+    .filter((c) => !(separateCanvas && c === canvas))
     .filter((c) => labDistance(c.lab, backgroundLab) >= MERGE_DISTANCE)
     .sort((p, q) => q.background - p.background);
   const surface = neutralSurfaces.find((c) => contrastRatio(c.color, backgroundColor) < 3) ?? null;
@@ -231,6 +303,7 @@ function assignRoles({ clusters, byHex, pairs, elements, notes }) {
   const border = maxBy(clusters.filter((c) => c.border > 0), (c) => c.border);
 
   return {
+    canvas: separateCanvas ? toHex(canvasColor) : null,
     background: toHex(backgroundColor),
     surface: surface?.hex ?? null,
     inverse: inverse?.hex ?? null,
@@ -262,9 +335,9 @@ function hexToRgb(hex) {
 }
 
 export function analyzeColors(elements, notes = []) {
-  const { entries, pairs, totals } = collectColors(elements);
+  const { entries, pairs, totals, textRuns } = collectColors(elements);
   const { clusters, byHex } = clusterColors(entries, totals);
-  const roles = assignRoles({ clusters, byHex, pairs, elements, notes });
+  const roles = assignRoles({ clusters, byHex, pairs, elements, textRuns, notes });
 
   const totalScore = sum(clusters, (c) => c.score) || 1;
   const roleNames = (hex) => Object.entries(roles).filter(([, v]) => v === hex).map(([k]) => k);

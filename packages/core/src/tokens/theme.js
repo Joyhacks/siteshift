@@ -3,6 +3,7 @@
 // without any extra classes.
 
 const ROLE_VARIABLES = {
+  canvas: 'canvas',
   background: 'background',
   surface: 'surface',
   inverse: 'inverse',

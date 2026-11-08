@@ -21,7 +21,7 @@ const body = (size) => ({ color: INK, 'font-family': 'Arial, sans-serif', 'font-
 
 function sampleCapture() {
   const desktop = [
-    el('body', { rect: { w: 1440, h: 3000 }, style: { 'background-color': 'rgb(250, 247, 242)', color: INK } }),
+    el('body', { path: 'body', rect: { w: 1440, h: 3000 }, style: { 'background-color': 'rgb(250, 247, 242)', color: INK } }),
     el('h1', {
       path: 'body > section > h1',
       text: 'Build faster with real systems',
@@ -185,4 +185,52 @@ test('renders a Tailwind v4 theme with mobile type overrides', () => {
   assert.match(css, /--radius-md: 12px;/);
   assert.match(css, /--container-site: 75rem;/);
   assert.match(css, /@media \(max-width: 639px\) \{\n {2}:root \{\n {4}--text-lg: 1\.75rem;\n {4}--text-xl: 2\.25rem;/);
+});
+
+// A dark site frame with content on light panels, like many agency and SaaS
+// sites: the body is dark green, most text sits on a white panel or a light
+// gradient, a large dark-green band is decorative, and mint is the CTA color.
+function framedCapture() {
+  const panel = { 'background-color': 'rgb(255, 255, 255)' };
+  const gradient = { 'background-image': 'linear-gradient(135deg, rgb(214, 236, 230) 0%, rgb(196, 226, 240) 100%)' };
+  const copy = (color) => ({ color, 'font-family': '"DM Sans", sans-serif', 'font-size': '16px', 'font-weight': '400' });
+  const cta = { 'background-color': 'rgb(49, 240, 199)', color: 'rgb(5, 32, 25)', 'border-radius': '999px' };
+
+  const desktop = [
+    el('body', { path: 'body', rect: { w: 1440, h: 6000 }, style: { 'background-color': 'rgb(9, 28, 20)', color: 'rgb(68, 78, 80)' } }),
+    el('nav', { path: 'body > nav', rect: { w: 1400, h: 80 } }),
+    el('a', { path: 'body > nav > a:nth-of-type(1)', text: 'Services', style: copy('rgb(255, 255, 255)') }),
+    el('a', { path: 'body > nav > a:nth-of-type(2)', text: 'Contact us', rect: { w: 130, h: 44 }, style: { ...copy('rgb(5, 32, 25)'), ...cta } }),
+    el('section', { path: 'body > section:nth-of-type(1)', rect: { w: 1400, h: 900 }, style: gradient }),
+    el('h1', { path: 'body > section:nth-of-type(1) > h1', text: 'Build compliant software that enterprises actually buy', style: { ...copy('rgb(0, 0, 0)'), 'font-size': '70px' } }),
+    el('a', { path: 'body > section:nth-of-type(1) > a', text: 'Book a call', rect: { w: 150, h: 48 }, style: { ...copy('rgb(5, 32, 25)'), ...cta } }),
+    el('section', { path: 'body > section:nth-of-type(2)', rect: { w: 1400, h: 2400 }, style: panel }),
+    ...Array.from({ length: 8 }, (_, i) =>
+      el('p', { path: `body > section:nth-of-type(2) > p:nth-of-type(${i + 1})`, text: 'We design and build production-grade software with compliance engineered into the architecture.', style: copy(i % 2 ? 'rgb(36, 36, 36)' : 'rgb(68, 78, 80)') }),
+    ),
+    el('a', { path: 'body > section:nth-of-type(2) > a', text: 'Work with us', rect: { w: 150, h: 48 }, style: { ...copy('rgb(5, 32, 25)'), ...cta } }),
+    el('section', { path: 'body > section:nth-of-type(3)', rect: { w: 1440, h: 1600 }, style: { 'background-color': 'rgb(4, 34, 25)' } }),
+    el('p', { path: 'body > section:nth-of-type(3) > p', text: 'Trusted by teams in healthcare and fintech.', style: copy('rgb(220, 230, 226)') }),
+  ];
+  return { manifest: { url: 'https://framed.example/' }, desktop, mobile: [] };
+}
+
+test('reads background and text from where text actually sits, not the body', () => {
+  const { colors } = analyzeTokens(framedCapture());
+  assert.equal(colors.roles.canvas, '#091c14');
+  assert.equal(colors.roles.background, '#ffffff');
+  assert.equal(colors.roles.foreground, '#242424');
+  assert.equal(colors.roles.muted, '#444e50');
+});
+
+test('picks the call-to-action color as primary over large decorative sections', () => {
+  const { colors } = analyzeTokens(framedCapture());
+  assert.equal(colors.roles.primary, '#31f0c7');
+  assert.equal(colors.roles.primaryForeground, '#052019');
+  assert.ok(colors.contrast.find((c) => c.label === 'Text on primary').passesAA);
+});
+
+test('omits the canvas role when content sits directly on the body', () => {
+  const { colors } = analyzeTokens(sampleCapture());
+  assert.equal(colors.roles.canvas, null);
 });

@@ -1,0 +1,24 @@
+{
+  "name": "siteshift-monorepo",
+  "private": true,
+  "type": "module",
+  "description": "Move a website you own into clean, editable React + Tailwind code.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "siteshift": "node apps/cli/bin/siteshift.js",
+    "capture": "node apps/cli/bin/siteshift.js capture",
+    "test": "npm test --workspaces --if-present",
+    "setup:browser": "playwright install chromium"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Joyhacks/siteshift.git"
+  }
+}

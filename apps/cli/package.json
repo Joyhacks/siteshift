@@ -1,0 +1,24 @@
+{
+  "name": "siteshift",
+  "version": "0.1.0",
+  "description": "Move a website you own into clean, editable code.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "siteshift": "bin/siteshift.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@siteshift/core": "0.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Joyhacks/siteshift.git",
+    "directory": "apps/cli"
+  }
+}

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeTokens, px } from '../src/tokens/analyze.js';
+import { analyzeTokens, composite, px } from '../src/tokens/analyze.js';
+import { parseColor, toHex } from '../src/tokens/color.js';
 import { buildThemeCss } from '../src/tokens/theme.js';
 
 let counter = 0;
@@ -233,4 +234,32 @@ test('picks the call-to-action color as primary over large decorative sections',
 test('omits the canvas role when content sits directly on the body', () => {
   const { colors } = analyzeTokens(sampleCapture());
   assert.equal(colors.roles.canvas, null);
+});
+
+test('blends translucent colors over their backdrop', () => {
+  const seen = composite(parseColor('rgba(255, 255, 255, 0.8)'), parseColor('rgb(4, 34, 25)'));
+  assert.equal(toHex(seen), '#cdd3d1');
+});
+
+test('counts translucent text as the color a reader actually sees', () => {
+  const dark = { 'background-color': 'rgb(4, 34, 25)' };
+  const copy = (color, n, base) =>
+    Array.from({ length: n }, (_, i) =>
+      el('p', { path: `body > section > p.${base}:nth-of-type(${i + 1})`, text: 'Production-grade software with compliance engineered in from day one.', style: { color, 'font-size': '16px' } }),
+    );
+  const capture = {
+    manifest: {},
+    desktop: [
+      el('body', { path: 'body', rect: { w: 1440, h: 4000 }, style: dark }),
+      el('section', { path: 'body > section', rect: { w: 1440, h: 3000 }, style: dark }),
+      ...copy('rgb(255, 255, 255)', 3, 'a'),
+      ...copy('rgba(255, 255, 255, 0.8)', 6, 'b'),
+      ...copy('rgba(234, 243, 239, 0.75)', 8, 'c'),
+    ],
+  };
+  const { colors } = analyzeTokens(capture);
+  assert.equal(colors.roles.background, '#042219');
+  assert.equal(colors.roles.foreground, '#ffffff');
+  assert.equal(colors.roles.muted, '#b1bfba');
+  assert.ok(colors.palette.some((c) => c.hex === '#cdd3d1'));
 });

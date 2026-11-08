@@ -85,15 +85,37 @@ function firstFamily(stack) {
 
 // ---------- colors ----------
 
-function collectColors(elements) {
+/** Blends a translucent color over an opaque one, the way the browser paints it. */
+export function composite(color, backdrop) {
+  const a = color.alpha;
+  return {
+    r: color.r * a + backdrop.r * (1 - a),
+    g: color.g * a + backdrop.g * (1 - a),
+    b: color.b * a + backdrop.b * (1 - a),
+    alpha: 1,
+  };
+}
+
+/**
+ * The color a viewer actually sees. Translucent text and borders, common on
+ * modern sites (white at 80% over dark green, say), are blended over the
+ * backdrop they sit on. Nearly invisible colors are ignored.
+ */
+function effectiveColor(raw, el, backdropOf) {
+  const color = parseColor(raw);
+  if (!color || color.alpha < 0.1) return null;
+  return color.alpha >= OPAQUE ? color : composite(color, backdropOf(el));
+}
+
+function collectColors(elements, backdropOf) {
   const entries = new Map();
   const pairs = [];
   const totals = { text: 0, background: 0, border: 0 };
 
   const textRuns = [];
 
-  const add = (raw, use, amount, interactiveUse) => {
-    const color = parseColor(raw);
+  const add = (input, use, amount, interactiveUse) => {
+    const color = typeof input === 'string' ? parseColor(input) : input;
     if (!color || color.alpha < OPAQUE || amount <= 0) return null;
     const hex = toHex(color);
     let entry = entries.get(hex);
@@ -112,23 +134,23 @@ function collectColors(elements) {
     const chars = textLength(el);
     const interactive = INTERACTIVE.has(el.tag);
 
+    const textColor = chars > 0 || interactive ? effectiveColor(style.color, el, backdropOf) : null;
     if (chars > 0) {
-      const text = add(style.color, 'text', chars, interactive ? 'interactiveText' : null);
+      const text = add(textColor, 'text', chars, interactive ? 'interactiveText' : null);
       if (text) textRuns.push({ el, hex: text.hex, chars });
     }
     const bg = add(style['background-color'], 'background', areaOf(el), interactive ? 'interactiveBg' : null);
 
     if (interactive && bg) {
       bg.interactiveCount += 1;
-      const text = parseColor(style.color);
-      pairs.push({ bg: bg.hex, text: text ? toHex(text) : null });
+      pairs.push({ bg: bg.hex, text: textColor ? toHex(textColor) : null });
     }
 
     for (const side of ['border-top', 'border-right', 'border-bottom', 'border-left']) {
       const value = style[side] ?? '';
       const width = px(value.split(/\s+/)[0]);
       if (width > 0 && !/\b(none|hidden)\b/.test(value)) {
-        for (const c of findColors(value)) add(c, 'border', 1);
+        for (const c of findColors(value)) add(effectiveColor(c, el, backdropOf), 'border', 1);
       }
     }
   }
@@ -215,7 +237,7 @@ function clusterColors(entries, totals) {
   return { clusters, byHex };
 }
 
-function assignRoles({ clusters, byHex, pairs, elements, textRuns, notes }) {
+function assignRoles({ clusters, byHex, pairs, elements, textRuns, backdropOf, notes }) {
   const white = parseColor('rgb(255, 255, 255)');
   const black = parseColor('rgb(0, 0, 0)');
   const body = elements.find((el) => el.tag === 'body');
@@ -234,7 +256,6 @@ function assignRoles({ clusters, byHex, pairs, elements, textRuns, notes }) {
   // Background: the backdrop most text is actually read on. Many sites put
   // content on light panels or gradients inside a dark frame, so the body
   // color alone gets this wrong.
-  const backdropOf = createBackdropResolver(elements, canvasColor);
   const runs = textRuns.map((run) => ({ ...run, backdrop: backdropOf(run.el) }));
   const reading = dominantBackdrop(runs.map((run) => ({ color: run.backdrop, weight: run.chars })));
   const backgroundColor = reading ? reading.color : canvasColor;
@@ -335,9 +356,14 @@ function hexToRgb(hex) {
 }
 
 export function analyzeColors(elements, notes = []) {
-  const { entries, pairs, totals, textRuns } = collectColors(elements);
+  const body = elements.find((el) => el.tag === 'body');
+  const bodyBg = body ? parseColor(body.style?.['background-color']) : null;
+  const pageColor = bodyBg && bodyBg.alpha >= OPAQUE ? bodyBg : parseColor('rgb(255, 255, 255)');
+  const backdropOf = createBackdropResolver(elements, pageColor);
+
+  const { entries, pairs, totals, textRuns } = collectColors(elements, backdropOf);
   const { clusters, byHex } = clusterColors(entries, totals);
-  const roles = assignRoles({ clusters, byHex, pairs, elements, textRuns, notes });
+  const roles = assignRoles({ clusters, byHex, pairs, elements, textRuns, backdropOf, notes });
 
   const totalScore = sum(clusters, (c) => c.score) || 1;
   const roleNames = (hex) => Object.entries(roles).filter(([, v]) => v === hex).map(([k]) => k);

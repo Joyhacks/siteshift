@@ -60,6 +60,15 @@ export async function extractStyles(page, limits = LIMITS) {
         for (const prop of props) style[prop] = computed.getPropertyValue(prop);
 
         const classes = (el.getAttribute('class') || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+        // Consent plugins often tag <body> or <html> itself (e.g. "cmplz-optin"),
+        // so only containers below <body> can mark an element as third party.
+        let thirdParty = false;
+        for (let node = el; node && node !== document.body && node !== document.documentElement; node = node.parentElement) {
+          if (node.matches(thirdPartySelector)) {
+            thirdParty = true;
+            break;
+          }
+        }
         const ownText = [...el.childNodes]
           .filter((node) => node.nodeType === Node.TEXT_NODE)
           .map((node) => node.textContent.trim())
@@ -80,7 +89,7 @@ export async function extractStyles(page, limits = LIMITS) {
           href: el.tagName === 'A' ? el.href : undefined,
           id: el.id || undefined,
           classes: classes || undefined,
-          thirdParty: el.closest(thirdPartySelector) ? true : undefined,
+          thirdParty: thirdParty || undefined,
           style,
         });
       }

@@ -24,6 +24,7 @@ const STEPS_ABOVE = ['lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl'
 const STEPS_BELOW = ['sm', 'xs', '2xs', '3xs'];
 const SIZE_NAMES = ['sm', 'md', 'lg', 'xl', '2xl', '3xl'];
 const MAX_TYPE_STEPS = 12;
+const MAX_THIRD_PARTY_SHARE = 0.25;
 const MAX_PALETTE = 12;
 
 // ---------- helpers ----------
@@ -621,10 +622,17 @@ export function analyzeTokens({ manifest, desktop, mobile = [] }) {
   const notes = [];
   const viewportWidth = manifest?.viewports?.desktop?.viewport?.width ?? 1440;
 
+  // Banners and widgets are a small part of any page. If the flag covers a
+  // large share, the detection misfired, so it is ignored rather than
+  // allowed to erase the site's design.
   const ignored = desktop.filter((el) => el.thirdParty).length;
-  if (ignored) notes.push(`Ignored ${ignored} elements from cookie banners and chat widgets.`);
-  desktop = desktop.filter((el) => !el.thirdParty);
-  mobile = mobile.filter((el) => !el.thirdParty);
+  if (ignored && ignored <= MAX_THIRD_PARTY_SHARE * desktop.length) {
+    notes.push(`Ignored ${ignored} elements from cookie banners and chat widgets.`);
+    desktop = desktop.filter((el) => !el.thirdParty);
+    mobile = mobile.filter((el) => !el.thirdParty);
+  } else if (ignored) {
+    notes.push(`${ignored} of ${desktop.length} elements were flagged as banner or widget content. That is too many to be right, so the flag was not applied.`);
+  }
   const textElements = desktop.filter((el) => textLength(el) > 0);
 
   return {

@@ -267,13 +267,13 @@ test('counts translucent text as the color a reader actually sees', () => {
 
 test('ignores cookie banners and chat widgets', () => {
   const capture = sampleCapture();
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 3; i++) {
     capture.desktop.push(el('p', { thirdParty: true, text: 'We use essential cookies to make our website work. Accept all?', style: { ...body(18), color: 'rgb(200, 0, 120)' } }));
   }
   const tokens = analyzeTokens(capture);
   assert.ok(!tokens.type.scale.some((s) => s.size === 18));
   assert.ok(!tokens.colors.palette.some((c) => c.hex === '#c80078'));
-  assert.match(tokens.notes.join(' '), /Ignored 12 elements/);
+  assert.match(tokens.notes.join(' '), /Ignored 3 elements/);
 });
 
 test('keeps display headings when the scale is capped', () => {
@@ -295,4 +295,13 @@ test('detects a 2px spacing grid', () => {
   const tokens = analyzeTokens(capture);
   assert.equal(tokens.spacing.base, 2);
   assert.match(buildThemeCss(tokens), /2px grid\. Keep Tailwind's 4px unit/);
+});
+
+test('distrusts a banner flag that covers most of the page', () => {
+  const capture = sampleCapture();
+  for (const item of capture.desktop) item.thirdParty = true;
+  const tokens = analyzeTokens(capture);
+  assert.equal(tokens.colors.roles.primary, '#4f46e5');
+  assert.ok(tokens.type.scale.length > 0);
+  assert.match(tokens.notes.join(' '), /too many to be right/);
 });

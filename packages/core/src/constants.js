@@ -55,3 +55,13 @@ export const EXT_BY_TYPE = Object.freeze({
   'video/mp4': '.mp4',
   'video/webm': '.webm',
 });
+
+/**
+ * id or class fragments of cookie banners, consent managers and chat widgets.
+ * Their text and colors are not part of the site's design.
+ */
+export const THIRD_PARTY_MARKERS = Object.freeze([
+  'cookie', 'consent', 'gdpr', 'cmplz', 'onetrust', 'cookiebot', 'cookieyes', 'iubenda',
+  'termly', 'usercentrics', 'didomi', 'osano', 'intercom', 'crisp-client', 'tawk',
+  'drift-frame', 'hubspot-messages', 'livechat', 'zsiq', 'tidio', 'chatwoot',
+]);

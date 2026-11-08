@@ -23,7 +23,7 @@ const CHROMATIC = 0.04; // OKLab chroma above which a color reads as a brand col
 const STEPS_ABOVE = ['lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl'];
 const STEPS_BELOW = ['sm', 'xs', '2xs', '3xs'];
 const SIZE_NAMES = ['sm', 'md', 'lg', 'xl', '2xl', '3xl'];
-const MAX_TYPE_STEPS = 10;
+const MAX_TYPE_STEPS = 12;
 const MAX_PALETTE = 12;
 
 // ---------- helpers ----------
@@ -434,6 +434,7 @@ export function analyzeType(textElements, mobileElements = []) {
     step.chars += chars;
     step.count += 1;
     if (isHeading) step.heading = true;
+    if (el.tag === 'h1' || el.tag === 'h2') step.display = true;
     else step.bodyChars += chars;
 
     const lineHeight = px(el.style['line-height']);
@@ -460,7 +461,9 @@ export function analyzeType(textElements, mobileElements = []) {
     (s) => s.count >= 2 || s.heading || s.size === base || s.chars >= 0.03 * totalChars,
   );
   if (selected.length > MAX_TYPE_STEPS) {
-    const keep = new Set([base]);
+    // Always keep the base size and the h1/h2 display sizes, even when they
+    // carry few characters, then fill the rest by how much text uses them.
+    const keep = new Set([base, ...selected.filter((s) => s.display).map((s) => s.size)]);
     for (const s of [...selected].sort((p, q) => q.chars - p.chars)) {
       if (keep.size >= MAX_TYPE_STEPS) break;
       keep.add(s.size);
@@ -524,6 +527,7 @@ export function analyzeSpacing(elements) {
   };
   let base = [8, 10, 6, 5, 4].find((unit) => shareOf(unit) >= 0.75) ?? null;
   if (!base && shareOf(4) >= 0.5) base = 4;
+  if (!base && shareOf(2) >= 0.8) base = 2; // even-pixel systems, common on hand-tuned sites
 
   const scale = [...counts]
     .filter(([, count]) => count >= 2)
@@ -616,6 +620,11 @@ export function analyzeTokens({ manifest, desktop, mobile = [] }) {
   }
   const notes = [];
   const viewportWidth = manifest?.viewports?.desktop?.viewport?.width ?? 1440;
+
+  const ignored = desktop.filter((el) => el.thirdParty).length;
+  if (ignored) notes.push(`Ignored ${ignored} elements from cookie banners and chat widgets.`);
+  desktop = desktop.filter((el) => !el.thirdParty);
+  mobile = mobile.filter((el) => !el.thirdParty);
   const textElements = desktop.filter((el) => textLength(el) > 0);
 
   return {

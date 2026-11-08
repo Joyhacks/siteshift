@@ -5,7 +5,7 @@ import { parseColor, toHex } from '../src/tokens/color.js';
 import { buildThemeCss } from '../src/tokens/theme.js';
 
 let counter = 0;
-function el(tag, { text, rect = {}, style = {}, path } = {}) {
+function el(tag, { text, rect = {}, style = {}, path, ...extra } = {}) {
   counter += 1;
   return {
     path: path ?? `body > ${tag}:nth-of-type(${counter})`,
@@ -13,6 +13,7 @@ function el(tag, { text, rect = {}, style = {}, path } = {}) {
     text,
     rect: { x: 0, y: 0, w: 100, h: 20, ...rect },
     style,
+    ...extra,
   };
 }
 
@@ -262,4 +263,36 @@ test('counts translucent text as the color a reader actually sees', () => {
   assert.equal(colors.roles.foreground, '#ffffff');
   assert.equal(colors.roles.muted, '#b1bfba');
   assert.ok(colors.palette.some((c) => c.hex === '#cdd3d1'));
+});
+
+test('ignores cookie banners and chat widgets', () => {
+  const capture = sampleCapture();
+  for (let i = 0; i < 12; i++) {
+    capture.desktop.push(el('p', { thirdParty: true, text: 'We use essential cookies to make our website work. Accept all?', style: { ...body(18), color: 'rgb(200, 0, 120)' } }));
+  }
+  const tokens = analyzeTokens(capture);
+  assert.ok(!tokens.type.scale.some((s) => s.size === 18));
+  assert.ok(!tokens.colors.palette.some((c) => c.hex === '#c80078'));
+  assert.match(tokens.notes.join(' '), /Ignored 12 elements/);
+});
+
+test('keeps display headings when the scale is capped', () => {
+  const capture = sampleCapture();
+  for (const size of [11, 12, 13, 15, 17, 18, 19, 20, 21, 22, 24, 26, 30]) {
+    capture.desktop.push(...Array.from({ length: 3 }, () => el('p', { text: 'Plenty of supporting copy at this size to compete for a slot.', style: body(size) })));
+  }
+  capture.desktop.push(el('h1', { text: 'Hero', style: { ...body(70), 'font-weight': '700' } }));
+  const { type } = analyzeTokens(capture);
+  const sizes = type.scale.map((s) => s.size);
+  assert.ok(sizes.length <= 12);
+  assert.ok(sizes.includes(70), `scale was ${sizes.join(', ')}`);
+  assert.ok(sizes.includes(16));
+});
+
+test('detects a 2px spacing grid', () => {
+  const capture = { manifest: {}, desktop: [el('body', { path: 'body', rect: { w: 1440, h: 2000 } })] };
+  for (const v of [10, 14, 18, 22, 26, 10, 14, 18, 22, 26, 12, 16]) capture.desktop.push(el('div', { style: pad(v) }));
+  const tokens = analyzeTokens(capture);
+  assert.equal(tokens.spacing.base, 2);
+  assert.match(buildThemeCss(tokens), /2px grid\. Keep Tailwind's 4px unit/);
 });

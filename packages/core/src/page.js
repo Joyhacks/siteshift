@@ -1,6 +1,11 @@
 // Functions that run against a loaded Playwright page.
 
-import { LIMITS, STYLE_PROPS } from './constants.js';
+import { LIMITS, STYLE_PROPS, THIRD_PARTY_MARKERS } from './constants.js';
+
+// Matches cookie banners and chat widgets by id or class, case-insensitively.
+const THIRD_PARTY_SELECTOR = THIRD_PARTY_MARKERS
+  .flatMap((marker) => [`[id*="${marker}" i]`, `[class*="${marker}" i]`])
+  .join(', ');
 
 /** Scrolls to the bottom in steps so lazy images and sections load, then waits for fonts. */
 export async function autoScroll(page, limits = LIMITS) {
@@ -22,11 +27,13 @@ export async function autoScroll(page, limits = LIMITS) {
 
 /**
  * Records every visible element: a CSS path, its box, own text, media source,
- * link target and the final computed styles the browser painted.
+ * link target, id and classes, and the final computed styles the browser
+ * painted. Elements inside cookie banners and chat widgets are flagged so the
+ * design analysis can ignore them.
  */
 export async function extractStyles(page, limits = LIMITS) {
   return page.evaluate(
-    ({ props, maxText }) => {
+    ({ props, maxText, thirdPartySelector }) => {
       const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'LINK', 'META']);
 
       const pathOf = (el) => {
@@ -52,6 +59,7 @@ export async function extractStyles(page, limits = LIMITS) {
         const style = {};
         for (const prop of props) style[prop] = computed.getPropertyValue(prop);
 
+        const classes = (el.getAttribute('class') || '').trim().replace(/\s+/g, ' ').slice(0, 200);
         const ownText = [...el.childNodes]
           .filter((node) => node.nodeType === Node.TEXT_NODE)
           .map((node) => node.textContent.trim())
@@ -70,12 +78,15 @@ export async function extractStyles(page, limits = LIMITS) {
           text: ownText ? ownText.slice(0, maxText) : undefined,
           src: el.currentSrc || el.getAttribute('src') || undefined,
           href: el.tagName === 'A' ? el.href : undefined,
+          id: el.id || undefined,
+          classes: classes || undefined,
+          thirdParty: el.closest(thirdPartySelector) ? true : undefined,
           style,
         });
       }
       return elements;
     },
-    { props: STYLE_PROPS, maxText: limits.maxTextPerElement },
+    { props: STYLE_PROPS, maxText: limits.maxTextPerElement, thirdPartySelector: THIRD_PARTY_SELECTOR },
   );
 }
 

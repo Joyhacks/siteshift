@@ -55,7 +55,9 @@ export function buildThemeCss(tokens) {
     }
   }
 
-  if (spacing.base && spacing.base % 4 !== 0) {
+  if (spacing.base === 2) {
+    lines.push('', "  /* Spacing: the site uses a 2px grid. Keep Tailwind's 4px unit and use half steps (p-2.5 is 10px) */");
+  } else if (spacing.base && spacing.base % 4 !== 0) {
     lines.push('', `  /* Spacing unit: the site uses a ${spacing.base}px grid */`);
     lines.push(`  --spacing: ${rem(spacing.base)};`);
   } else if (spacing.base) {

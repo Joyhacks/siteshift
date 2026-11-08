@@ -48,9 +48,31 @@ export async function extractStyles(page, limits = LIMITS) {
         return parts.join(' > ');
       };
 
+      const ATTRS = ['alt', 'title', 'target', 'rel', 'type', 'name', 'placeholder', 'value', 'aria-label', 'role', 'for', 'colspan', 'rowspan'];
+      const collapse = (text) => text.replace(/\s+/g, ' ');
+
+      // Text and child elements in document order, so mixed content like
+      // "Save <strong>40%</strong> today" can be rebuilt exactly.
+      const contentOf = (el) => {
+        const items = [];
+        for (const node of el.childNodes) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const text = collapse(node.textContent);
+            if (text.trim()) items.push(text);
+            else if (text && items.length) items.push(' ');
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.tagName === 'BR') items.push({ br: true });
+            else if (!SKIP.has(node.tagName)) items.push({ child: pathOf(node) });
+          }
+        }
+        return items;
+      };
+
       const elements = [];
       for (const el of [document.body, ...document.body.querySelectorAll('*')]) {
         if (SKIP.has(el.tagName)) continue;
+        // Shapes inside an SVG are kept as part of the SVG's own markup.
+        if (el.tagName !== 'svg' && el.closest('svg')) continue;
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) continue;
         const computed = getComputedStyle(el);
@@ -74,6 +96,13 @@ export async function extractStyles(page, limits = LIMITS) {
           .map((node) => node.textContent.trim())
           .filter(Boolean)
           .join(' ');
+        const hasMixedContent = ownText || [...el.children].some((c) => c.tagName === 'BR');
+
+        const attrs = {};
+        for (const name of ATTRS) {
+          const value = el.getAttribute(name);
+          if (value !== null && value !== '') attrs[name] = value.slice(0, 300);
+        }
 
         elements.push({
           path: pathOf(el),
@@ -90,6 +119,9 @@ export async function extractStyles(page, limits = LIMITS) {
           id: el.id || undefined,
           classes: classes || undefined,
           thirdParty: thirdParty || undefined,
+          attrs: Object.keys(attrs).length ? attrs : undefined,
+          content: hasMixedContent ? contentOf(el) : undefined,
+          svg: el.tagName === 'svg' ? el.outerHTML.slice(0, 50_000) : undefined,
           style,
         });
       }

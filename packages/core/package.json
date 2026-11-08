@@ -1,6 +1,6 @@
 {
   "name": "@siteshift/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Capture engine for Siteshift: records a live page exactly as the browser paints it.",
   "license": "MIT",
   "type": "module",

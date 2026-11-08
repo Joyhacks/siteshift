@@ -26,13 +26,15 @@ export const STYLE_PROPS = Object.freeze([
   'width', 'height', 'min-height', 'max-width',
   'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'gap',
+  'flex-direction', 'flex-wrap', 'justify-content', 'align-items', 'align-self', 'gap',
+  'flex-grow', 'flex-shrink', 'flex-basis', 'order',
   'grid-template-columns', 'grid-template-rows',
   'font-family', 'font-size', 'font-weight', 'font-style', 'line-height',
   'letter-spacing', 'text-align', 'text-transform', 'text-decoration-line',
   'color', 'background-color', 'background-image', 'background-size', 'background-position',
   'border-top', 'border-right', 'border-bottom', 'border-left', 'border-radius',
-  'box-shadow', 'opacity', 'overflow', 'object-fit', 'transform', 'transition',
+  'box-shadow', 'opacity', 'overflow', 'object-fit', 'object-position', 'transform', 'transition',
+  'list-style-type', 'white-space', 'cursor', 'vertical-align',
 ]);
 
 /** File extensions by content type, for naming saved assets. */

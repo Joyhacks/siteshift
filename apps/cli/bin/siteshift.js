@@ -2,7 +2,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { captureSite, extractTokens, TargetError } from '@siteshift/core';
+import { captureSite, extractTokens, generateProject, TargetError } from '@siteshift/core';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json');
@@ -13,6 +13,7 @@ Move a website you own into clean, editable code.
 Usage
   siteshift capture <url> [options]
   siteshift tokens <folder>
+  siteshift generate <folder> [-o <dir>]
 
 Commands
   capture <url>         Record the page as the browser paints it, at desktop
@@ -20,9 +21,12 @@ Commands
   tokens <folder>       Extract design tokens from an existing capture. Accepts
                         a capture folder or a host folder such as
                         captures/example.com (the newest capture is used).
+  generate <folder>     Build a Vite + React + Tailwind CSS v4 project from a
+                        capture. Written to <capture>/site unless -o is given.
 
 Options
-  -o, --out <dir>       Base folder for captures (default: captures)
+  -o, --out <dir>       capture: base folder for captures (default: captures)
+                        generate: folder for the generated project
       --browser-path    Use an installed Chrome instead of Playwright's Chromium
       --allow-local     Allow localhost and private network addresses, for
                         capturing your own dev server
@@ -33,6 +37,7 @@ Options
 Examples
   siteshift capture https://yoursite.com
   siteshift tokens captures/yoursite.com
+  siteshift generate captures/yoursite.com
 `;
 
 class UsageError extends Error {}
@@ -43,7 +48,7 @@ function parse(argv) {
       args: argv,
       allowPositionals: true,
       options: {
-        out: { type: 'string', short: 'o', default: 'captures' },
+        out: { type: 'string', short: 'o' },
         'browser-path': { type: 'string' },
         'allow-local': { type: 'boolean', default: false },
         'skip-tokens': { type: 'boolean', default: false },
@@ -91,7 +96,7 @@ async function runCapture(url, values) {
   if (!url) throw new UsageError('Give me a URL. Example: siteshift capture https://yoursite.com');
   console.log(`Capturing ${url}`);
   const { outDir, manifest } = await captureSite(url, {
-    outDir: values.out,
+    outDir: values.out ?? 'captures',
     executablePath: values['browser-path'],
     allowPrivateNetwork: values['allow-local'],
     onProgress: ({ type, message }) => {
@@ -105,6 +110,22 @@ async function runCapture(url, values) {
 async function runTokens(folder) {
   if (!folder) throw new UsageError('Give me a capture folder. Example: siteshift tokens captures/yoursite.com');
   printTokenSummary(await extractTokens(folder));
+}
+
+async function runGenerate(folder, values) {
+  if (!folder) throw new UsageError('Give me a capture folder. Example: siteshift generate captures/yoursite.com');
+  console.log('Generating project...');
+  const result = await generateProject(folder, { outDir: values.out });
+  console.log('\nGenerated.');
+  console.log(`  Project:    ${result.outDir}`);
+  console.log(`  Components: ${result.components.join(', ') || 'none'}`);
+  console.log(`  Fonts:      ${result.fonts} @font-face rules`);
+  console.log(`  Assets:     ${result.assets} files copied`);
+  for (const note of result.notes) console.log(`  note: ${note}`);
+  console.log('\n  Run it:');
+  console.log(`    cd "${result.outDir}"`);
+  console.log('    npm install');
+  console.log('    npm run dev');
 }
 
 async function main(argv) {
@@ -122,6 +143,7 @@ async function main(argv) {
 
   if (command === 'capture') return runCapture(target, values);
   if (command === 'tokens') return runTokens(target);
+  if (command === 'generate') return runGenerate(target, values);
   throw new UsageError(`Unknown command "${command}". Run siteshift --help.`);
 }
 

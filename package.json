@@ -15,6 +15,7 @@
     "siteshift": "node apps/cli/bin/siteshift.js",
     "capture": "node apps/cli/bin/siteshift.js capture",
     "tokens": "node apps/cli/bin/siteshift.js tokens",
+    "generate": "node apps/cli/bin/siteshift.js generate",
     "test": "npm test --workspaces --if-present",
     "setup:browser": "playwright install chromium"
   },

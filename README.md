@@ -4,7 +4,7 @@ Move a website you own into clean, editable React + Tailwind code.
 
 Siteshift opens your live site in a real browser, records exactly what it paints, and rebuilds it as a project you can edit, host anywhere and keep. It is built for the jobs website builders make painful: leaving Wix, Squarespace, Webflow or an old WordPress theme, recovering a site whose source code is gone, or giving a client a codebase they actually own.
 
-> **Status: early.** Capture and design token extraction work today. Code generation and the visual verify loop are next. See the [roadmap](#roadmap).
+> **Status: early.** Capture, design tokens and code generation work today. The automated verify loop and an AI pass that refines component structure are next. See the [roadmap](#roadmap).
 
 ## How it works
 
@@ -12,7 +12,7 @@ Most "clone a URL" tools hand raw HTML to an AI model and hope. Siteshift copies
 
 1. **Capture.** A headless browser loads the page like a visitor, scrolls it so lazy content loads, and records the result at desktop (1440px) and phone (390px) width: full-page screenshots, rendered HTML, the computed style of every visible element, and every image, font and stylesheet.
 2. **Tokens.** The captured styles are reduced to a real design system. Colors get roles from how the page uses them: the backdrop text is actually read on (including gradients), the page frame when content sits on panels, text, muted, the call-to-action color, surface and border. Near-identical shades are merged, and the main pairs are checked against WCAG contrast. Fonts, a named type scale with its mobile sizes, the spacing grid, radii, shadows and content width come out the same way. Cookie banners and chat widgets are detected during capture and left out. Output is a Tailwind CSS v4 theme you can drop into a project.
-3. **Convert.** The page becomes typed React components with Tailwind classes built from those tokens. AI is used only for structure and naming.
+3. **Generate.** The page becomes a runnable Vite + React + Tailwind CSS v4 project, one component per section. Each element's computed styles become Tailwind classes that reference the theme tokens where values match (`bg-primary`, `text-4xl`, `rounded-md`), with the mobile layout as the base and desktop differences under `lg:`. Text order, links, images, inline SVG icons and web fonts carry over. This step is deterministic, so it costs nothing to run.
 4. **Verify.** The rebuild is rendered and screenshotted at the same widths, diffed against the original section by section, and repaired until it matches. Anything it cannot match is reported, never hidden.
 
 ## Quick start
@@ -25,9 +25,10 @@ cd siteshift
 npm install
 npm run setup:browser   # downloads Chromium for Playwright, once
 npm run capture -- https://yoursite.com
+npm run generate -- captures/yoursite.com
 ```
 
-Output lands in `captures/<host>/<timestamp>/`:
+Capture output lands in `captures/<host>/<timestamp>/`:
 
 ```
 desktop/   screenshot.png, page.html, styles.json   (1440px)
@@ -64,13 +65,33 @@ A generated theme looks like this:
 
 Tailwind utilities read these variables at runtime, so `text-4xl` is 64px on desktop and 40px on phones with no extra classes.
 
+`generate` writes the project to `captures/<host>/<timestamp>/site/`:
+
+```
+src/components/   one component per section: Header, HeroSection, Footer...
+src/index.css     Tailwind import plus the theme
+src/fonts.css     the site's @font-face rules, pointed at local files
+public/assets/    images and fonts from the capture
+```
+
+Run it with `npm install` and `npm run dev`. Generated markup looks like this:
+
+```tsx
+<a className="text-primary-foreground font-semibold inline-block px-7 py-3.5 rounded-sm bg-primary" href="/contact">
+  Start a project
+</a>
+```
+
+On the project's test page, the rebuilt site matches the original's page height to the pixel at both widths, and every screenshot difference traces back to the cookie banner Siteshift deliberately leaves out.
+
 ## CLI
 
 ```
 siteshift capture <url> [options]   capture a page, then extract its tokens
 siteshift tokens <folder>           re-extract tokens from an existing capture
+siteshift generate <folder>         build a React + Tailwind project from a capture
 
-  -o, --out <dir>       Base folder for captures (default: captures)
+  -o, --out <dir>       capture: base folder (default: captures); generate: project folder
       --browser-path    Use an installed Chrome instead of Playwright's Chromium
       --allow-local     Allow localhost and private addresses (your own dev server)
       --skip-tokens     Capture only
@@ -83,7 +104,7 @@ siteshift tokens <folder>           re-extract tokens from an existing capture
 ## Use it as a library
 
 ```js
-import { captureSite, extractTokens } from '@siteshift/core';
+import { captureSite, extractTokens, generateProject } from '@siteshift/core';
 
 const { outDir } = await captureSite('https://yoursite.com', {
   outDir: 'captures',
@@ -92,6 +113,9 @@ const { outDir } = await captureSite('https://yoursite.com', {
 
 const { tokens } = await extractTokens(outDir);
 console.log(tokens.colors.roles.primary);
+
+const project = await generateProject(outDir);
+console.log(project.outDir, project.components);
 ```
 
 ## Limits
@@ -125,7 +149,8 @@ Safeguards built in:
 - [x] CLI
 - [x] Design tokens: color roles, contrast checks, fonts, responsive type scale, spacing grid, radii, shadows, content width
 - [x] Tailwind CSS v4 theme output and visual preview
-- [ ] React + Tailwind code generation
+- [x] React + Tailwind code generation: section components, responsive classes, assets, fonts, inline SVG
+- [ ] AI pass: repeated blocks into reusable components, cleaner names
 - [ ] Visual verify loop with per-section match scores
 - [ ] Interaction states: menus, tabs, accordions, sliders
 - [ ] Multi-page sites with shared header and footer
@@ -139,6 +164,7 @@ Safeguards built in:
 packages/core/          engine (@siteshift/core)
   src/capture.js        browser capture
   src/tokens/           color math, token analysis, theme and preview output
+  src/generate/         style-to-Tailwind conversion, JSX, components, project writer
 apps/cli/               siteshift command
 ```
 

@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { extractTokens, resolveCaptureDir } from '../tokens/index.js';
 import { buildThemeCss } from '../tokens/theme.js';
@@ -136,6 +136,8 @@ export async function generateProject(dir, options = {}) {
 
   // Write the project
   const outDir = path.resolve(options.outDir ?? path.join(captureDir, 'site'));
+  // Generated components are replaced wholesale so a re-run leaves no stale files.
+  await rm(path.join(outDir, 'src', 'components'), { recursive: true, force: true });
   await mkdir(path.join(outDir, 'src', 'components'), { recursive: true });
   await mkdir(path.join(outDir, 'public', 'assets'), { recursive: true });
 
